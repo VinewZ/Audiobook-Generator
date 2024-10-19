@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gen2brain/go-fitz"
@@ -15,6 +16,7 @@ import (
 )
 
 var pdfTotalPages int
+var txtSentences []string
 
 func main() {
 	pdfCmd := flag.NewFlagSet("pdf", flag.ExitOnError)
@@ -56,6 +58,7 @@ func start(src, fileName, pdfLang string) {
 	cpFile(src, fileName)
 	convertToImgs(path.Join("./tmp", fileName), fileName)
 	extractTexts(path.Join("./tmp", fileName), fileName, pdfLang)
+	splitTextIntoSentences(path.Join("./tmp", fileName), fileName)
 }
 
 func cpFile(src, fileName string) (dst string) {
@@ -93,25 +96,25 @@ func convertToImgs(src, fileName string) {
 
 	imgsDirPath := path.Join(src, "imgs")
 	err = os.Mkdir(imgsDirPath, os.ModePerm)
-  pdfTotalPages = pdf.NumPage()
+	pdfTotalPages = pdf.NumPage()
 
-	for i := 0; i < pdfTotalPages / 15; i++ {
+	for i := 0; i < pdfTotalPages; i++ {
 
-		fmt.Printf("Converting page %d / %d\n", i, pdfTotalPages / 15)
+		fmt.Printf("Converting page %d / %d\n", i+1, pdfTotalPages)
 		img, err := pdf.Image(i)
 		if err != nil {
-			log.Fatalf("Error while converting page Number %d, to image: %v", i, err)
+			log.Fatalf("Error while converting page Number %d, to image: %v", i+1, err)
 		}
 
 		f, err := os.Create(filepath.Join(imgsDirPath, fmt.Sprintf("%s-%04d.png", fileName, i)))
 		if err != nil {
-			log.Fatalf("Error while saving image Number %d: %v", i, err)
+			log.Fatalf("Error while saving image Number %d: %v", i+1, err)
 		}
 		defer f.Close()
 
 		err = png.Encode(f, img)
 		if err != nil {
-			log.Fatalf("Error while encoding PNG Number %d: %v", i, err)
+			log.Fatalf("Error while encoding PNG Number %d: %v", i+1, err)
 		}
 
 	}
@@ -147,7 +150,7 @@ func extractTexts(src, fileName, pdfLang string) {
 	defer client.Close()
 
 	for idx, img := range imgs {
-    fmt.Printf("Extracting page %d/%d\n", idx, pdfTotalPages / 15)
+		fmt.Printf("Extracting page %d / %d\n", idx+1, pdfTotalPages)
 		client.SetImage(filepath.Join(imgsDirPath, img.Name()))
 		txt, err := client.Text()
 		if err != nil {
@@ -158,5 +161,32 @@ func extractTexts(src, fileName, pdfLang string) {
 
 	durationTime := time.Since(startTime)
 	fmt.Println("Finished text extraction")
+	fmt.Printf("Took %.2f seconds\n", durationTime.Seconds())
+}
+
+func splitTextIntoSentences(src, fileName string) {
+	fmt.Println("Splitting text into sentences")
+	startTime := time.Now()
+
+	txtFile, err := os.ReadFile(filepath.Join(src, "texts", fmt.Sprintf("%s.txt", fileName)))
+	if err != nil {
+		log.Fatalf("Error while reading txt file: %v", err)
+	}
+
+	txt := string(txtFile)
+
+	txt = strings.ReplaceAll(txt, "\n", " ")
+	txt = strings.TrimSpace(txt)
+
+	for idx, sentence := range strings.Split(txt, ".") {
+		trimmedSentence := strings.TrimSpace(sentence)
+		if trimmedSentence != "" {
+			fmt.Println(idx, trimmedSentence)
+			txtSentences = append(txtSentences, trimmedSentence+".")
+		}
+	}
+
+	durationTime := time.Since(startTime)
+	fmt.Println("Finished splitting text")
 	fmt.Printf("Took %.2f seconds\n", durationTime.Seconds())
 }
