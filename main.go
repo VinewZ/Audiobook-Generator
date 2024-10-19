@@ -3,9 +3,14 @@ package main
 import (
 	"flag"
 	"fmt"
+	"image/jpeg"
 	"log"
 	"os"
 	"path"
+	"path/filepath"
+	"time"
+
+	"github.com/gen2brain/go-fitz"
 )
 
 func main() {
@@ -45,6 +50,7 @@ func main() {
 
 func start(src, fileName string){
   cpFile(src, fileName)
+  convertToImgs(path.Join("./tmp", fileName), fileName)
 }
 
 func cpFile(src, fileName string) (dst string) {
@@ -69,4 +75,43 @@ func cpFile(src, fileName string) (dst string) {
 	}
 
 	return fmt.Sprintf("./tmp/%s", fileName)
+}
+
+
+func convertToImgs(src, fileName string){
+  fmt.Println("Starting converting to images")
+  startTime := time.Now()
+  pdf, err := fitz.New(fmt.Sprintf("%s/%s.pdf", src, fileName))
+  if err != nil {
+    log.Fatalf("Error while opening file with Fitz: %v", err)
+  }
+  defer pdf.Close()
+
+  imgsDirPath := path.Join(src, "imgs")
+  err = os.Mkdir(imgsDirPath, os.ModePerm)
+
+  for i := 0; i < pdf.NumPage() / 15; i++ {
+
+    fmt.Printf("Converting page %d / %d\n", i, pdf.NumPage() / 10)
+    img, err := pdf.Image(i)
+    if err != nil {
+      log.Fatalf("Error while converting page Number %d, to image: %v", i, err)
+    }
+
+    f, err := os.Create(filepath.Join(imgsDirPath, fmt.Sprintf("%s-%04d.jpg", fileName, i)))
+    if err != nil {
+      log.Fatalf("Error while saving image Number %d: %v", i, err)
+    }
+    defer f.Close()
+
+    err = jpeg.Encode(f, img, &jpeg.Options{Quality: jpeg.DefaultQuality})
+    if err != nil {
+      log.Fatalf("Error while encoding JPEG Number %d: %v", i, err)
+    }
+
+  }
+
+  durationTime := time.Since(startTime)
+  fmt.Println("Finished converting to images")
+  fmt.Printf("Took %.2f seconds\n", durationTime.Seconds())
 }
