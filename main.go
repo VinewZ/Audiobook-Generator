@@ -186,7 +186,7 @@ func splitTextIntoSentences(src, fileName string) {
 		trimmedSentence := strings.TrimSpace(sentence)
 		if trimmedSentence != "" {
 			fmt.Println(idx, trimmedSentence)
-			txtSentences = append(txtSentences, trimmedSentence+".")
+			txtSentences = append(txtSentences, trimmedSentence)
 		}
 	}
 
