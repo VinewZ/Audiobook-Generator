@@ -4,7 +4,10 @@ import (
 	"flag"
 	"fmt"
 	"image/png"
+	"io"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -59,6 +62,7 @@ func start(src, fileName, pdfLang string) {
 	convertToImgs(path.Join("./tmp", fileName), fileName)
 	extractTexts(path.Join("./tmp", fileName), fileName, pdfLang)
 	splitTextIntoSentences(path.Join("./tmp", fileName), fileName)
+	postSentencesToAPI(txtSentences, fileName, pdfLang)
 }
 
 func cpFile(src, fileName string) (dst string) {
@@ -189,4 +193,53 @@ func splitTextIntoSentences(src, fileName string) {
 	durationTime := time.Since(startTime)
 	fmt.Println("Finished splitting text")
 	fmt.Printf("Took %.2f seconds\n", durationTime.Seconds())
+}
+
+func postSentencesToAPI(stcs []string, fileName, lang string) {
+	_, err := http.Get("http://127.0.0.1:7851/api/ready")
+	if err != nil {
+		var tryAgain string
+		fmt.Println("Not able to connect to http://127.0.0.1:7851")
+		fmt.Println("Is the AllTalk Running?")
+		fmt.Printf("Error: %d\n", err)
+		fmt.Println("Try Again [y/n]?")
+		fmt.Scan(&tryAgain)
+		if tryAgain == "y" {
+			postSentencesToAPI(stcs, fileName, lang)
+			return
+		} else {
+			fmt.Println("Aborted")
+			os.Exit(1)
+		}
+	}
+
+	for idx, stc := range stcs {
+		formData := url.Values{
+			"text_input":            {stc},
+			"text_filtering":        {"standard"},
+			"character_voice_gen":   {"female_01.wav"},
+			"narrator_enabled":      {"false"},
+			"narrator_voice_gen":    {"male_01.wav"},
+			"text_not_inside":       {"character"},
+			"language":              {"pt"},
+			"output_file_name":      {fmt.Sprintf("%s_%04d", fileName, idx+1)},
+			"output_file_timestamp": {"true"},
+			"autoplay":              {"false"},
+			"autoplay_volume":       {"0.1"},
+		}
+    postSent, err := http.PostForm(
+      "http://127.0.0.1:7851/api/tts-generate",
+      formData,
+    )
+    if err != nil {
+      log.Fatalf("Error while posting form to API: %v", err)
+    }
+    defer postSent.Body.Close()
+
+    bd, err := io.ReadAll(postSent.Body)
+    if err != nil {
+      log.Fatalf("Error while reading Response Body: %v", err)
+    }
+    fmt.Printf("Response Status: %s \n Response Body: %s\n", postSent.Status, string(bd))
+	}
 }
