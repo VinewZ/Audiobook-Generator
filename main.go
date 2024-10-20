@@ -204,7 +204,7 @@ func postSentencesToAPI(stcs []string, fileName, lang string) {
 		var tryAgain string
 		fmt.Println("Not able to connect to http://127.0.0.1:7851")
 		fmt.Println("Is the AllTalk Running?")
-		fmt.Printf("Error: %d\n", err)
+		fmt.Printf("Error: %s\n", err)
 		fmt.Println("Try Again [y/n]?")
 		fmt.Scan(&tryAgain)
 		if tryAgain == "y" {
