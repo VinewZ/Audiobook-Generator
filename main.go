@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"image/png"
@@ -62,7 +63,7 @@ func start(src, fileName, pdfLang string) {
 	convertToImgs(path.Join("./tmp", fileName), fileName)
 	extractTexts(path.Join("./tmp", fileName), fileName, pdfLang)
 	splitTextIntoSentences(path.Join("./tmp", fileName), fileName)
-	postSentencesToAPI(txtSentences, fileName, pdfLang)
+	postSentencesToAPI(txtSentences, fileName, pdfLang )
 }
 
 func cpFile(src, fileName string) (dst string) {
@@ -182,10 +183,9 @@ func splitTextIntoSentences(src, fileName string) {
 	txt = strings.ReplaceAll(txt, "\n", " ")
 	txt = strings.TrimSpace(txt)
 
-	for idx, sentence := range strings.Split(txt, ".") {
+	for _, sentence := range strings.Split(txt, ".") {
 		trimmedSentence := strings.TrimSpace(sentence)
 		if trimmedSentence != "" {
-			fmt.Println(idx, trimmedSentence)
 			txtSentences = append(txtSentences, trimmedSentence)
 		}
 	}
@@ -196,6 +196,9 @@ func splitTextIntoSentences(src, fileName string) {
 }
 
 func postSentencesToAPI(stcs []string, fileName, lang string) {
+	fmt.Println("Generating audios")
+	startTime := time.Now()
+
 	_, err := http.Get("http://127.0.0.1:7851/api/ready")
 	if err != nil {
 		var tryAgain string
@@ -214,6 +217,7 @@ func postSentencesToAPI(stcs []string, fileName, lang string) {
 	}
 
 	for idx, stc := range stcs {
+    fmt.Printf("Generating audio %d / %d\n", idx+1, len(stcs))
 		formData := url.Values{
 			"text_input":            {stc},
 			"text_filtering":        {"standard"},
@@ -227,19 +231,55 @@ func postSentencesToAPI(stcs []string, fileName, lang string) {
 			"autoplay":              {"false"},
 			"autoplay_volume":       {"0.1"},
 		}
-    postSent, err := http.PostForm(
-      "http://127.0.0.1:7851/api/tts-generate",
-      formData,
-    )
-    if err != nil {
-      log.Fatalf("Error while posting form to API: %v", err)
-    }
-    defer postSent.Body.Close()
+		postSent, err := http.PostForm(
+			"http://127.0.0.1:7851/api/tts-generate",
+			formData,
+		)
+		if err != nil {
+			log.Fatalf("Error while posting form to API: %v", err)
+		}
+		defer postSent.Body.Close()
 
-    bd, err := io.ReadAll(postSent.Body)
-    if err != nil {
-      log.Fatalf("Error while reading Response Body: %v", err)
+		bd, err := io.ReadAll(postSent.Body)
+		if err != nil {
+			log.Fatalf("Error while reading Response Body: %v", err)
+		}
+
+    type TTSResponse struct {
+      Status         string `json:"status"`
+      OutputFilePath string `json:"output_file_path"`
+      OutputFileURL  string `json:"output_file_url"`
+      OutputCacheURL string `json:"output_cache_url"`
     }
-    fmt.Printf("Response Status: %s \n Response Body: %s\n", postSent.Status, string(bd))
+
+    var resJson TTSResponse
+
+    err = json.Unmarshal(bd, &resJson)
+    if err != nil {
+      log.Fatalf("Error unmarshaling res: %v", err)
+    }
+
+    saveAudioFile(fileName, resJson.OutputFilePath)
 	}
+	durationTime := time.Since(startTime)
+	fmt.Println("Finished Generating Audios")
+	fmt.Printf("Took %.2f seconds\n", durationTime.Seconds())
+}
+
+func saveAudioFile(fileName, audioSrc string) {
+  audiosDirPath := path.Join("./tmp", fileName, "audios")
+  if _ , err := os.Stat(audiosDirPath); os.IsNotExist(err){
+    err := os.Mkdir(audiosDirPath, os.ModePerm)
+    if err != nil {
+      log.Fatalf("Error while creating audio dir: %v", err)
+    }
+  }
+
+  audioName := filepath.Base(audioSrc)
+
+  err := os.Rename(audioSrc, fmt.Sprintf("%s/%s", audiosDirPath, audioName))
+  if err != nil {
+    log.Fatalf("Error while moving audio: %v", err)
+  }
+  fmt.Printf("Audio saved at: %s/%s\n", audiosDirPath, audioName)
 }
