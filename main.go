@@ -327,7 +327,7 @@ func concatenateAudios(fileName string) {
 		}
 	}
 
-	outPath := path.Join("./tmp", fileName, "output.wav")
+	outPath := path.Join("./tmp", fileName, fmt.Sprintf("%s.wav", fileName))
 	err = godub.NewExporter(outPath).WithDstFormat("wav").WithBitRate(128).Export(segment)
 	if err != nil {
 		log.Fatalf("Error while exporting audio: %v", err)
