@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -189,7 +190,9 @@ func splitTextIntoSentences(src, fileName string) {
 	txt = strings.ReplaceAll(txt, "\n", " ")
 	txt = strings.TrimSpace(txt)
 
-	for _, sentence := range strings.Split(txt, ".") {
+  // Splitting text into sentences by ".", "!" and "?"
+  re := regexp.MustCompile(`[.!?]`)
+	for _, sentence := range re.Split(txt, -1) {
 		trimmedSentence := strings.TrimSpace(sentence)
 		if trimmedSentence != "" {
 			txtSentences = append(txtSentences, trimmedSentence)
