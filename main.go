@@ -12,21 +12,25 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gen2brain/go-fitz"
+	"github.com/iFaceless/godub"
 	"github.com/otiai10/gosseract/v2"
 )
 
 var pdfTotalPages int
 var txtSentences []string
+var delay int
 
 func main() {
 	pdfCmd := flag.NewFlagSet("pdf", flag.ExitOnError)
 	pdfName := pdfCmd.String("name", "", "Name to be saved")
 	pdfPath := pdfCmd.String("path", "", "PDF file path")
 	pdfLang := pdfCmd.String("lang", "por", "PDF language")
+	delayBetweenSentences := pdfCmd.String("delay", "1000", "Delay between sentences in milliseconds")
 
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: AllPDF <subcommand> [flags]")
@@ -47,6 +51,7 @@ func main() {
 		var option string
 		fmt.Scanln(&option)
 		if option == "y" {
+      delay, _ = strconv.Atoi(*delayBetweenSentences)
 			start(*pdfPath, *pdfName, *pdfLang)
 		} else {
 			fmt.Println("Aborted")
@@ -63,7 +68,8 @@ func start(src, fileName, pdfLang string) {
 	convertToImgs(path.Join("./tmp", fileName), fileName)
 	extractTexts(path.Join("./tmp", fileName), fileName, pdfLang)
 	splitTextIntoSentences(path.Join("./tmp", fileName), fileName)
-	postSentencesToAPI(txtSentences, fileName, pdfLang )
+	postSentencesToAPI(txtSentences, fileName, pdfLang)
+	concatenateAudios(fileName)
 }
 
 func cpFile(src, fileName string) (dst string) {
@@ -217,7 +223,7 @@ func postSentencesToAPI(stcs []string, fileName, lang string) {
 	}
 
 	for idx, stc := range stcs {
-    fmt.Printf("Generating audio %d / %d\n", idx+1, len(stcs))
+		fmt.Printf("Generating audio %d / %d\n", idx+1, len(stcs))
 		formData := url.Values{
 			"text_input":            {stc},
 			"text_filtering":        {"standard"},
@@ -245,21 +251,21 @@ func postSentencesToAPI(stcs []string, fileName, lang string) {
 			log.Fatalf("Error while reading Response Body: %v", err)
 		}
 
-    type TTSResponse struct {
-      Status         string `json:"status"`
-      OutputFilePath string `json:"output_file_path"`
-      OutputFileURL  string `json:"output_file_url"`
-      OutputCacheURL string `json:"output_cache_url"`
-    }
+		type TTSResponse struct {
+			Status         string `json:"status"`
+			OutputFilePath string `json:"output_file_path"`
+			OutputFileURL  string `json:"output_file_url"`
+			OutputCacheURL string `json:"output_cache_url"`
+		}
 
-    var resJson TTSResponse
+		var resJson TTSResponse
 
-    err = json.Unmarshal(bd, &resJson)
-    if err != nil {
-      log.Fatalf("Error unmarshaling res: %v", err)
-    }
+		err = json.Unmarshal(bd, &resJson)
+		if err != nil {
+			log.Fatalf("Error unmarshaling res: %v", err)
+		}
 
-    saveAudioFile(fileName, resJson.OutputFilePath)
+		saveAudioFile(fileName, resJson.OutputFilePath)
 	}
 	durationTime := time.Since(startTime)
 	fmt.Println("Finished Generating Audios")
@@ -267,19 +273,79 @@ func postSentencesToAPI(stcs []string, fileName, lang string) {
 }
 
 func saveAudioFile(fileName, audioSrc string) {
-  audiosDirPath := path.Join("./tmp", fileName, "audios")
-  if _ , err := os.Stat(audiosDirPath); os.IsNotExist(err){
-    err := os.Mkdir(audiosDirPath, os.ModePerm)
+	audiosDirPath := path.Join("./tmp", fileName, "audios")
+	if _, err := os.Stat(audiosDirPath); os.IsNotExist(err) {
+		err := os.Mkdir(audiosDirPath, os.ModePerm)
+		if err != nil {
+			log.Fatalf("Error while creating audio dir: %v", err)
+		}
+	}
+
+	audioName := filepath.Base(audioSrc)
+
+	err := os.Rename(audioSrc, fmt.Sprintf("%s/%s", audiosDirPath, audioName))
+	if err != nil {
+		log.Fatalf("Error while moving audio: %v", err)
+	}
+	fmt.Printf("Audio saved at: %s/%s\n", audiosDirPath, audioName)
+}
+
+func concatenateAudios(fileName string) {
+	fmt.Println("Concatenating audios")
+	startTime := time.Now()
+
+	audiosDirPath := path.Join("./tmp", fileName, "audios")
+	audios, err := os.ReadDir(audiosDirPath)
+	if err != nil {
+		log.Fatalf("Error while reading audios dir: %v", err)
+	}
+
+	segment, err := godub.NewLoader().Load(path.Join(audiosDirPath, audios[0].Name()))
+  silence := createSilentAudio(fileName, delay)
+	if err != nil {
+		log.Fatalf("Error while reading first audio: %v", err)
+	}
+
+	for i := 1; i < len(audios); i++ {
+		fmt.Printf("Appending audio %d / %d\n", i, len(audios))
+		audioPath := path.Join(audiosDirPath, audios[i].Name())
+		newSeg, err := godub.NewLoader().Load(audioPath)
+		if err != nil {
+			log.Fatalf("Error while reading audio: %v", err)
+		}
+    silenceDub, err := godub.NewLoader().Load(silence)
     if err != nil {
-      log.Fatalf("Error while creating audio dir: %v", err)
+      log.Fatalf("Error while reading silence audio: %v", err)
     }
-  }
 
-  audioName := filepath.Base(audioSrc)
+		segment, err = segment.Append(silenceDub, newSeg)
+		if err != nil {
+			log.Fatalf("Error while appending audio: %v", err)
+		}
+	}
 
-  err := os.Rename(audioSrc, fmt.Sprintf("%s/%s", audiosDirPath, audioName))
+	outPath := path.Join("./tmp", fileName, "output.wav")
+	err = godub.NewExporter(outPath).WithDstFormat("wav").WithBitRate(128).Export(segment)
+	if err != nil {
+		log.Fatalf("Error while exporting audio: %v", err)
+	}
+
+	durationTime := time.Since(startTime)
+	fmt.Println("Finished concatenating audios")
+	fmt.Printf("Took %.2f seconds\n", durationTime.Seconds())
+}
+
+func createSilentAudio(fileName string, duration int) string {
+  segment, err := godub.NewSilentAudioSegment(float64(duration), 24000)
   if err != nil {
-    log.Fatalf("Error while moving audio: %v", err)
+    log.Fatalf("Error while creating silent audio: %v", err)
   }
-  fmt.Printf("Audio saved at: %s/%s\n", audiosDirPath, audioName)
+
+  outPath := path.Join("./tmp", fileName, "audios/silence.wav")
+  err = godub.NewExporter(outPath).WithDstFormat("wav").WithBitRate(128).Export(segment)
+  if err != nil {
+    log.Fatalf("Error while exporting silent audio: %v", err)
+  }
+
+  return outPath
 }
