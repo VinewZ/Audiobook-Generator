@@ -1,4 +1,4 @@
-module allpdfcli
+module github.com/VinewZ/Audiobook-Generator
 
 go 1.23.1
 
