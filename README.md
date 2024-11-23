@@ -22,7 +22,7 @@ Flags:
 
 Example usage:
 ```shell
-go run main.go pdf -name=mybook -path=/path/to/mybook.pdf -lang=pt -delay=1000
+go run main.go pdf -name mybook -path /path/to/mybook.pdf -lang pt -delay 1000
 ```
 
 Note:
@@ -31,5 +31,3 @@ Note:
 - The generated audio files will be stored in a `./tmp` directory.
 
 Please ensure that you have the necessary permissions and dependencies in place before running this application.
-
-
